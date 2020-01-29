@@ -1,10 +1,11 @@
-let express = require('express');
-let morgan = require('morgan');
-let bodyParser = require('body-parser');
-let mongoose = require('mongoose');
+let express = require("express");
+let morgan = require("morgan");
+let bodyParser = require("body-parser");
+let mongoose = require("mongoose");
 let jsonParser = bodyParser.json();
-let {StudentList} = require('./model'); // Exporta objeto para usarlo en model
-let {DATABASE_URL, PORT} = require('./config'); // Importa variabñes de config.js
+let { StudentList } = require("./model"); // Importa objeto de model
+let jwt = require("jsonwebtoken");
+let { DATABASE_URL, PORT } = require("./config"); // Importa variables de config
 
 let app = express();
 
@@ -19,83 +20,74 @@ app.use(function(req, res, next) {
   next();
 });
 
-app.use(express.static('public')); // Folder estático que contiene lo que se muestra al usr
-app.use(morgan('dev')); // El formato del string
+app.use(express.static("public")); // Folder estático que contiene lo que se muestra al usr
+app.use(morgan("dev")); // El formato del string
 
-let estudiantes = [{
-    nombre : "Miguel",
-    apellido : "Ángeles",
-    matricula : 1730939
-},
-{
-    nombre : "Erick",
-    apellido : "González",
-    matricula : 1039859
-    
-},
-{
-    nombre : "Victor",
-    apellido : "Villarreal",
-    matricula : 1039863
-},
-{
-    nombre : "Victor",
-    apellido : "Cárdenas",
-    matricula : 816350
-}];
-
+let estudiantes = [
+  {
+    nombre: "Miguel",
+    apellido: "Ángeles",
+    matricula: 1730939
+  },
+  {
+    nombre: "Erick",
+    apellido: "González",
+    matricula: 1039859
+  }
+];
 
 // GET all estudiantes
-app.get('/api/students', (req, res) => {
+app.get("/api/students", (req, res) => {
   // Llama el método que está en module
   StudentList.getAll()
-      .then( studentList => {
-        return res.status(200).json(studentList);
-      })
-      .catch(error => {
-        res.statusMessage = "Hubo un error de conexión con la base de Base de Datos"
-        return res.status(500).send();
-      });
+    .then(studentList => {
+      return res.status(200).json(studentList);
+    })
+    .catch(error => {
+      res.statusMessage =
+        "Hubo un error de conexión con la base de Base de Datos";
+      return res.status(500).send();
+    });
 });
 
-// GET student by ID 
+// GET student by ID
 // PARAMETER
-app.get('/api/getById', (req, res) => {
-    let id = req.query.id;
+app.get("/api/getById", (req, res) => {
+  let matricula = req.query.id;
 
-    let result =  estudiantes.find((elemento) => {
-        if (elemento.matricula == id) {
-            return elemento;
-        }
-    });
-
-    if (result) {
-        return res.status(200).json({result});
-    }
-    else  {
+  StudentList.findByMatricula(matricula)
+    .then(result => {
+      if (!result) {
         res.statusMessage = "El alumno no se encuentra en la lista";
         return res.status(404).send();
-    }
+      }
+      return res.status(200).json(result);
+    })
+    .catch(error => {
+      res.statusMessage =
+        "Hubo un error de conexión con la base de Base de Datos";
+      return res.status(500).send();
+    });
 });
 
 // GET estudiantes by name
-// ATRIBUTE
-app.get('/api/getByName/:name', (req, res) => {
-    let name = req.params.name;
+// NO ME JALA CUANDO ES UNO QUE NO EXISTE RETORNA VACIO
+app.get("/api/getByName/:name", (req, res) => {
+  let name = req.params.name;
 
-    let result =  estudiantes.filter((elemento) => {
-        if (elemento.nombre === name) {
-            return elemento;
-        }
-    });
-
-    if (result.length > 0) {
-        return res.status(200).json(result);
-    }
-    else  {
+  StudentList.getAllByName(name)
+    .then(result => {
+      if (!result.length) {
         res.statusMessage = "El alumno no se encuentra en la lista";
         return res.status(404).send();
-    }
+      }
+      return res.status(200).json(result);
+    })
+    .catch(error => {
+      res.statusMessage =
+        "Hubo un error de conexión con la base de Base de Datos";
+      return res.status(500).send();
+    });
 });
 
 // POST new student
@@ -110,7 +102,7 @@ app.get('/api/getByName/:name', (req, res) => {
 */
 
 function yaExiste(id) {
-  for(let student of estudiantes) {
+  for (let student of estudiantes) {
     if (student.matricula === id) {
       return true;
     }
@@ -118,40 +110,36 @@ function yaExiste(id) {
   return false;
 }
 
-app.post('/api/newStudent', jsonParser, (req, res) => {
-    let name = req.body.nombre;
-    let lastName = req.body.apellido;
-    let id = req.body.matricula;
-    
-    // Valida que el request tenga todos los parámetros
-    if ((name && lastName && id) && (name != "" && lastName != "" && id != "")) {
-      
-      // Valida si ya existe el estudiante
-      let existe = yaExiste(id);
+app.post("/api/newStudent", jsonParser, (req, res) => {
+  let student = req.body;
+  if (
+    Object.keys(student).length < 3 ||
+    student.nombre == "" || student.apellido == "" || student.matricula == ""
+  ) {
+    res.statusMessage = "No es posible agregar estudiante, faltan datos";
+    return res.status(406).send();
+  }
 
-      // Regresa error si ya existe estudiante
-      if (existe) {
-        res.statusMessage = "Ya existe el alumno";
-        return res.status(409).send();
-      } else {
-        // Crea objeto de nuevo estudiante
-        let newStudent = {
-          nombre: name,
-          apellido: lastName,
-          matricula: id
-        };
-        
-        // Agrega nuevo estudiante a la lista de estudiantes
-        estudiantes.push(newStudent);
-        console.log(estudiantes);
-        res.statusMessage = "Nuevo estudiante agregado exitosamente";
-        return res.status(201).send();
-      }
-    // Regresa error de que faltan parámetros
+  StudentList.findByMatricula(student.matricula).then(result => {
+    if (result) {
+      res.statusMessage = "Ya existe el alumno";
+      return res.status(409).send();
     } else {
-      res.statusMessage = "No es posible agregar estudiante, faltan datos";
-      return res.status(406).send();
+      let newStudent = {
+        nombre: student.nombre,
+        apellido: student.apellido,
+        matricula: student.matricula
+      };
+      StudentList.addStudent(newStudent)
+        .then(result => {
+          return res.status(201).json(result);
+        })
+        .catch(error => {
+          res.statusMessage = "Hubo un error con la base de datos";
+          return res.status(500).send();
+        });
     }
+  });
 });
 
 // PUT
@@ -168,43 +156,45 @@ app.post('/api/newStudent', jsonParser, (req, res) => {
 */
 
 app.put("/api/updateStudent/:id", jsonParser, (req, res) => {
-  let name = req.body.nombre;
-  let lastName = req.body.apellido;
+  // Valida si faltan datos
+  if (!req.body.matricula || (!req.body.nombre && !req.body.apellido)) {
+    res.statusMessage = "No es posible actualizar estudiante, falta dato";
+    return res.status(406).send();
+  }
   let idBody = req.body.matricula;
   let idParam = req.params.id;
+  // Compara matricula de body con param, valida si son diferentes
+  if (idBody != idParam) {
+    res.statusMessage = "La matrícula del url y del body no son iguales";
+    return res.status(409).send();
+  }
 
-  // Valida req
-  if (idBody != "" && (name != "" || lastName != "")) {
-    // Compara matricula de body con param, valida que sean iguales
-    if (idBody == idParam) {
-      // Busca estudiante en arreglo
-      let resultado = estudiantes.find(elemento => {
-        if (elemento.matricula == idBody) {
-          return elemento;
-        }
-      });
-      // Si existe estudiante
-      if (resultado) {
-        let index = estudiantes.indexOf(resultado);
-        estudiantes[index].nombre = (name != "") ? name : resultado.nombre;
-        estudiantes[index].apellido = (lastName != "") ? lastName : resultado.apellido;
+  let data = {};
 
+  if (req.body.nombre) {
+    data.nombre = req.body.nombre;
+  }
+
+  if (req.body.apellido) {
+    data.apellido = req.body.apellido;
+  }
+
+  // Busca estudiante en BD
+  StudentList.updateStudent(idParam, data)
+    .then(result => {
+      if (result) {
         res.statusMessage = "Datos de estudiante actualizados exitosamente";
         return res.status(201).send();
       } else {
         res.statusMessage = "El estudiante con matrícula ${idBody} no existe";
         return res.status(404).send();
       }
-    } else {
-      res.statusMessage = "La matrícula del url y del body no son iguales";
-      return res.status(409).send();
-    }
-  } else {
-    res.statusMessage = "No es posible actualizar estudiante, falta dato";
-    return res.status(406).send();
-  }
+    })
+    .catch(error => {
+      res.statusMessage = "Hubo un error con la base de datos";
+      return res.status(500).send();
+    });
 });
-
 
 // DELETE
 /* 
@@ -219,38 +209,62 @@ app.put("/api/updateStudent/:id", jsonParser, (req, res) => {
 
 */
 
-app.delete('/api/deleteStudent', jsonParser, (req, res) => {
-  let idBody = req.body.matricula;
-  if (req.query.id) {
-    let id = req.query.id;
-
-    if (id == idBody) {
-
-      let resultado =  estudiantes.find((elemento) => {
-        if (elemento.matricula === id) {
-            return elemento;
-        }
-
-        if (elemento) {
-          estudiantes.splice(estudiantes.indexOf(elemento), 1);
-          return res.status(202).send();
-        }
-        else {
-          res.statusMessage = "El estudiante con matrícula " + id + " no existe";
-          return res.status(404).send();
-        }
-    });
-
-    } 
-    else {
-      res.statusMessage = "Los parámetros del URL no coinciden con el del cuerpo"
-      return res.status(409).send();
-    }
-  }
-  else {
+app.delete("/api/deleteStudent", jsonParser, (req, res) => {
+  if (!req.query.id || !req.body.matricula) {
     res.statusMessage = "Dato faltante";
     return res.status(406).send();
   }
+  let id = req.query.id;
+  let idBody = req.body.matricula;
+
+  if (id != idBody) {
+    res.statusMessage = "El id del URL no coincide con el del cuerpo";
+    return res.status(409).send();
+  }
+
+  StudentList.deleteStudent(id)
+    .then(result => {
+      if (result) {
+        return res.status(202).send();
+      } else {
+        res.statusMessage = "El estudiante con matrícula " + id + " no existe";
+        return res.status(404).send();
+      }
+    })
+    .catch(error => {
+      res.statusMessage = "No es posible actualizar estudiante, falta dato";
+      return res.status(406).send();
+    });
+});
+
+//LOGIN sin BD
+app.post("/api/login", jsonParser, (req, res) => {
+  let user = req.body.user;
+  let password = req.body.password;
+
+  // Validar el usuario en la BD antes de generar TOKEN
+  let data = {
+    user
+  };
+
+  let token = jwt.sign(data, "secret", { expiresIn: 60 * 5 });
+
+  return res.status(200).json({ token });
+});
+
+// Valida TOKEN
+app.get("/api/validate", (req, res) => {
+  let token = req.headers.authorization;
+  token = token.replace("Bearer ", "");
+
+  jwt.verify(token, "secret", (err, user) => {
+    if (err) {
+      res.statusMessage = "Token no válido";
+      return res.status(400).send();
+    }
+    console.log(user);
+    return res.status(200).json({ message: "Exito" });
+  });
 });
 
 let server;
@@ -292,4 +306,4 @@ function closeServer() {
 
 runServer(PORT, DATABASE_URL);
 
-module.exports = {app, runServer, closeServer} 
+module.exports = { app, runServer, closeServer };
